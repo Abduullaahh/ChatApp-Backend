@@ -10,6 +10,10 @@ const { jwtStrategy } = require('./config/passport');
 const typeDefs = require('./graphql/typeDefs/index');
 const resolvers = require('./graphql/resolvers/index');
 const twilio = require('twilio');
+const { SubscriptionServer } = require('subscriptions-transport-ws'); // {{ edit_1 }}
+const http = require('http'); // {{ edit_2 }}
+const { execute, subscribe } = require('graphql'); // {{ edit_1 }}
+const { makeExecutableSchema } = require('@graphql-tools/schema'); // {{ edit_1 }}
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI, { // Use env variable
@@ -29,9 +33,7 @@ app.get('/', (req, res) => {
 
 // Twilio Webhook to receive SMS
 app.post('/sms', express.urlencoded({ extended: true }), async (req, res) => {
-  console.log('Incoming request:', req.body);
-  const { Body, From } = req.body; // Body is the message, From is the sender
-  console.log(`Received SMS from ${From}: ${Body}`);
+  const { Body, From } = req.body;
   
   try {
     const mutation = `
@@ -73,10 +75,15 @@ app.post('/sms', express.urlencoded({ extended: true }), async (req, res) => {
 // Passport middleware for JWT
 passport.use(jwtStrategy);
 
-// Apollo Server setup
-const server = new ApolloServer({
+// Create the schema
+const schema = makeExecutableSchema({
   typeDefs,
   resolvers,
+});
+
+// Apollo Server setup
+const server = new ApolloServer({
+  schema, // Use the created schema
   context: ({ req }) => {
     // Ensure req is defined
     const token = req?.headers?.authorization || '';
@@ -101,7 +108,22 @@ const startApolloServer = async () => {
   server.applyMiddleware({ app }); // Apply middleware after server starts
 
   const PORT = process.env.PORT || 4000; // Use env variable
-  app.listen(PORT, () => {
+  const httpServer = http.createServer(app); // Create HTTP server
+  
+  // Set up the Subscription server
+  const subscriptionServer = SubscriptionServer.create({ // Create SubscriptionServer
+    schema, // Pass the schema directly
+    execute,
+    subscribe,
+    onConnect: (connectionParams) => {
+      return { authToken: connectionParams.authToken }; // Pass token for authentication
+    },
+  }, {
+    server: httpServer,
+    path: server.graphqlPath,
+  });
+
+  httpServer.listen(PORT, () => { // Start the HTTP server
     console.log(`Server is running on http://localhost:${PORT}${server.graphqlPath}`);
   });
 };

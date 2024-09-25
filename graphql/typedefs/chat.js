@@ -18,6 +18,10 @@ const chat = gql`
     saveSentMessage(content: String!, receiver: String!, sender: String!): Boolean!
     receiveIncomingMessage(content: String!, sender: String!, receiver: String!): Message!
   }
+
+  type Subscription {
+    messageReceived(username: String!): Message!
+  }
 `;
 
 module.exports = chat;
